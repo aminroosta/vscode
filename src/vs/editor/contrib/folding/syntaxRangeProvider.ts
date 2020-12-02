@@ -41,6 +41,12 @@ export class SyntaxRangeProvider implements RangeProvider {
 
 	compute(cancellationToken: CancellationToken): Promise<FoldingRegions | null> {
 		return collectSyntaxRanges(this.providers, this.editorModel, cancellationToken).then(ranges => {
+                       // a user configurable option that would force
+                       // closing FoldRange not to be displayed.
+                       if(this.editorModel.getOptions().eatFoldingEndLine) {
+                               ranges?.forEach(r => { r.end += 1; });
+                       }
+
 			if (ranges) {
 				let res = sanitizeRanges(ranges, this.limit);
 				return res;
