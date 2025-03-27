@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import electron, { BrowserWindowConstructorOptions, Display, screen } from 'electron';
+import { BrowserWindow, app, globalShortcut } from 'electron';
 import { DeferredPromise, RunOnceScheduler, timeout, Delayer } from '../../../base/common/async.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { toErrorMessage } from '../../../base/common/errorMessage.js';
@@ -33,6 +34,7 @@ import { ITelemetryService } from '../../telemetry/common/telemetry.js';
 import { ThemeIcon } from '../../../base/common/themables.js';
 import { IThemeMainService } from '../../theme/electron-main/themeMainService.js';
 import { getMenuBarVisibility, IFolderToOpen, INativeWindowConfiguration, IWindowSettings, IWorkspaceToOpen, MenuBarVisibility, hasNativeTitlebar, useNativeFullScreen, useWindowControlsOverlay, DEFAULT_CUSTOM_TITLEBAR_HEIGHT, TitlebarStyle, MenuSettings } from '../../window/common/window.js';
+import { IWorkspacesOverlay } from '../../window/common/window.js';
 import { defaultBrowserWindowOptions, getAllWindowsExcludingOffscreen, IWindowsMainService, OpenContext, WindowStateValidator } from './windows.js';
 import { ISingleFolderWorkspaceIdentifier, IWorkspaceIdentifier, isSingleFolderWorkspaceIdentifier, isWorkspaceIdentifier, toWorkspaceIdentifier } from '../../workspace/common/workspace.js';
 import { IWorkspacesManagementMainService } from '../../workspaces/electron-main/workspacesManagementMainService.js';
@@ -206,6 +208,8 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
 			this._register(this.onDidLeaveFullScreen(() => {
 				this.joinNativeFullScreenTransition?.complete(true);
 			}));
+
+			this.handleWorkspacesOverlay();
 		}
 
 		if (isWindows && this.environmentMainService.enableRDPDisplayTracking) {
@@ -225,6 +229,104 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
 
 			this._win.setBounds(state);
 		}
+	}
+
+	protected handleWorkspacesOverlay() {
+		const {
+			enabled = false,
+			hotKey = 'CommandOrControl+Enter',
+			alwaysOnTop = true,
+			snapMode = 'bottom'
+		} = this.configurationService.getValue<IWorkspacesOverlay | undefined>('window.workspacesOverlay') || {};
+
+		if (!enabled) {
+			return;
+		}
+
+		const getOverlayWindow = () => {
+			const windows = BrowserWindow.getAllWindows();
+			return windows.find(win => win.isVisibleOnAllWorkspaces());
+		};
+
+		const setOverlayWindow = () => {
+			const windows = BrowserWindow.getAllWindows();
+			const win = windows[0];
+			win.setAlwaysOnTop(alwaysOnTop);
+			win.setVisibleOnAllWorkspaces(true, {
+				visibleOnFullScreen: true,
+			});
+		};
+
+		// Snap the window to top, bottom, left or right
+		const snapWindow = (win: BrowserWindow) => {
+			const [winWidth, winHeight] = win.getSize();
+			const currentDisplay = screen.getDisplayMatching(win.getBounds());
+			const { x: dispX, y: dispY, width: dispWidth, height: dispHeight } = currentDisplay.bounds;
+
+			if (snapMode === 'bottom') {
+				win.setBounds({
+					x: dispX,
+					y: dispY + dispHeight - winHeight,
+					width: dispWidth,
+					height: winHeight
+				});
+			} else if (snapMode === 'top') {
+				win.setBounds({
+					x: dispX,
+					y: dispY,
+					width: dispWidth,
+					height: winHeight
+				});
+			} else if (snapMode === 'left') {
+				win.setBounds({
+					x: dispX,
+					y: dispY,
+					width: winWidth,
+					height: dispHeight
+				});
+			} else if (snapMode === 'right') {
+				win.setBounds({
+					x: dispX + dispWidth - winWidth,
+					y: dispY,
+					width: winWidth,
+					height: dispHeight
+				});
+			}
+		};
+
+		const toggleVisiblity = () => {
+			const win = getOverlayWindow();
+			if (!win) { return; }
+
+			if (!win.isVisibleOnAllWorkspaces()) {
+				win.setAlwaysOnTop(alwaysOnTop);
+				win.setVisibleOnAllWorkspaces(true, {
+					visibleOnFullScreen: true,
+				});
+			}
+
+			if (win.isVisible()) {
+				win.hide();
+				// Give the focus back to other applications if there is no other window
+				if (!BrowserWindow.getFocusedWindow()) {
+					app.hide();
+				}
+			} else {
+				win.showInactive();
+				snapWindow(win);
+				win.focus();
+			}
+		};
+
+		// Register global hotkey and setup the overlay window
+		app.whenReady().then(() => {
+			if (!getOverlayWindow()) {
+				setOverlayWindow();
+			}
+			if (!globalShortcut.isRegistered(hotKey)) {
+				globalShortcut.register(hotKey, toggleVisiblity);
+			}
+		});
 	}
 
 	constructor(
@@ -1042,7 +1144,13 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 				electron.app.setProxy({ proxyRules, proxyBypassRules, pacScript: '' });
 			}
 		}
+
+		if (isMacintosh && e?.affectsConfiguration('window.workspacesOverlay')) {
+			globalShortcut.unregisterAll();
+			this.handleWorkspacesOverlay();
+		}
 	}
+
 
 	addTabbedWindow(window: ICodeWindow): void {
 		if (isMacintosh && window.win) {
