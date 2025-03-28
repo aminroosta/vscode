@@ -20,6 +20,8 @@ const foldingContext: FoldingContext = {
 
 const ID_SYNTAX_PROVIDER = 'syntax';
 
+export const FOLD_END_PATTERN = /^\s*\}|^\s*\]|^\s*\)|^\s*end|^\s*"""/;
+
 export class SyntaxRangeProvider implements RangeProvider {
 
 	readonly id = ID_SYNTAX_PROVIDER;
@@ -73,6 +75,13 @@ function collectSyntaxRanges(providers: FoldingRangeProvider[], model: ITextMode
 				}
 				const nLines = model.getLineCount();
 				for (const r of ranges) {
+					if(r.end < nLines) {
+						let endLineContent = model.getLineContent(r.end + 1);
+						if(FOLD_END_PATTERN.test(endLineContent)) {
+							r.end = r.end + 1;
+						}
+					}
+
 					if (r.start > 0 && r.end > r.start && r.end <= nLines) {
 						rangeData.push({ start: r.start, end: r.end, rank: i, kind: r.kind });
 					}

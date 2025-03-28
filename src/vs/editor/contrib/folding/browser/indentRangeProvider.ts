@@ -10,6 +10,7 @@ import { FoldingMarkers } from '../../../common/languages/languageConfiguration.
 import { ILanguageConfigurationService } from '../../../common/languages/languageConfigurationRegistry.js';
 import { FoldingRegions, MAX_LINE_NUMBER } from './foldingRanges.js';
 import { FoldingLimitReporter, RangeProvider } from './folding.js';
+import { FOLD_END_PATTERN } from './syntaxRangeProvider.js';
 
 const MAX_FOLDING_REGIONS_FOR_INDENT_DEFAULT = 5000;
 
@@ -65,6 +66,7 @@ export class RangesCollector {
 
 	public toIndentRanges(model: ITextModel) {
 		const limit = this._foldingRangesLimit.limit;
+		const nLines = model.getLineCount();
 		if (this._length <= limit) {
 			this._foldingRangesLimit.update(this._length, false);
 
@@ -74,6 +76,12 @@ export class RangesCollector {
 			for (let i = this._length - 1, k = 0; i >= 0; i--, k++) {
 				startIndexes[k] = this._startIndexes[i];
 				endIndexes[k] = this._endIndexes[i];
+				if (endIndexes[k] < nLines) {
+					let endLineContent = model.getLineContent(endIndexes[k] + 1);
+					if (FOLD_END_PATTERN.test(endLineContent)) {
+						endIndexes[k] = endIndexes[k] + 1;
+					}
+				}
 			}
 			return new FoldingRegions(startIndexes, endIndexes);
 		} else {
@@ -102,6 +110,12 @@ export class RangesCollector {
 				if (indent < maxIndent || (indent === maxIndent && entries++ < limit)) {
 					startIndexes[k] = startIndex;
 					endIndexes[k] = this._endIndexes[i];
+					if (endIndexes[k] < nLines) {
+						let endLineContent = model.getLineContent(endIndexes[k] + 1);
+						if (FOLD_END_PATTERN.test(endLineContent)) {
+							endIndexes[k] = endIndexes[k] + 1;
+						}
+					}
 					k++;
 				}
 			}
