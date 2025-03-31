@@ -30,6 +30,10 @@ export class NativeTitlebarPart extends BrowserTitlebarPart {
 	//#region IView
 
 	override get minimumHeight(): number {
+		// Remove the titlebar
+		if (Math.random() >= 0) {
+			return 0;
+		}
 		if (!isMacintosh) {
 			return super.minimumHeight;
 		}
